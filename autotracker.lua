@@ -66,13 +66,45 @@ function get_scene_number()
     return mainmemory.read_u16_be(0x1C8544)
 end
 
+function hexify(padding)
+    return function(n) return string.format("%0" .. padding .. "x", tonumber(n)) end
+end
+
+function read_range(size)
+    local function read_n_range(addr)
+        local val = tonumber(table.concat(map(hexify(2), one_index(mainmemory.readbyterange(addr, size))), ""), 16)
+        return val
+    end
+    return read_n_range
+end
+
+-- readbyterange returns a 0-indexed """array""" (table), which none of lua's builtin functions treat properly,
+-- since it expects 1-indexing...
+function one_index(array)
+    local new_array = {}
+    for i,v in pairs(array) do
+        new_array[i+1] = v
+    end
+    return new_array
+end
+
+function map(func, array)
+    local new_array = {}
+    for i,v in ipairs(array) do
+        new_array[i] = func(v)
+    end
+    return new_array
+end
+
 SIZE_TO_READ_FN = {
     [1] = mainmemory.read_u8,
     [2] = mainmemory.read_u16_be,
+    [3] = read_range(3),
     [4] = mainmemory.read_u32_be
 }
 
 INVENTORY_ADDRS = {
+    quest_items = 0x11A675,
     boomerang = 0x11A650,
     hammer = 0x11A653,
     boots_tunic_shield_sword = 0x11A66C,
@@ -91,6 +123,7 @@ scene_flags = {
 }
 
 inventory = {
+    quest_items = 0,
     boomerang = 0,
     hammer = 0,
     boots_tunic_shield_sword = 0,
@@ -140,6 +173,8 @@ event.onmemorywrite(register_handler(INVENTORY_ADDRS["stick_nut_scale_wallet_bul
 event.onmemorywrite(register_handler(INVENTORY_ADDRS["hammer"], 1, "hammer"), INVENTORY_ADDRS["hammer"] + 0x80000000)
 event.onmemorywrite(register_handler(INVENTORY_ADDRS["boomerang"], 1, "boomerang"), INVENTORY_ADDRS["boomerang"] + 0x80000000)
 event.onmemorywrite(register_handler(INVENTORY_ADDRS["boots_tunic_shield_sword"], 2, "boots_tunic_shield_sword"), INVENTORY_ADDRS["boots_tunic_shield_sword"] + 0x80000000)
+event.onmemorywrite(register_handler(INVENTORY_ADDRS["quest_items"], 3, "quest_items"), INVENTORY_ADDRS["quest_items"] + 0x80000000)
+
 event.onmemorywrite(reboot_detect, 0x8017CA48)
 event.onmemorywrite(file_select, 0x8011A5EC)
 event.onmemorywrite(handle_scene_setup_index, 0x8011B930)
