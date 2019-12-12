@@ -33,7 +33,7 @@ function handle_event(name, val)
     if boot_sequence > 0 then
         return
     end
-    if name == "chest" or name == "collec" then
+    if LOCATION_TYPES[name] ~= nil then
         update_flags(name, val)
     else
         if not scene_changing then --and not in_cutscene
@@ -119,7 +119,10 @@ last_ck_val = 0
 
 scene_flags = {
     chest = 0,
-    collec = 0
+    collec = 0,
+    songs1 = 0,
+    songs2 = 0,
+    songs3 = 0,
 }
 
 inventory = {
@@ -165,9 +168,23 @@ handle_scene_setup_index = function()
     end
 end
 
+LOCATION_TYPES = {
+    chest = {addr = 0x1CA1D8, size = 4},
+    collec = {addr = 0x1CA1E4, size = 4},
+    songs1 = {addr = 0x11B4AE, size = 1},
+    songs2 = {addr = 0x11B4AF, size = 1},
+    songs3 = {addr = 0x11B4B8, size = 1},
+}
 
-event.onmemorywrite(register_handler(0x1CA1D8, 4, "chest"), 0x801CA1D8)
-event.onmemorywrite(register_handler(0x1CA1E4, 4, "collec"), 0x801CA1E4)
+for name, mem in pairs(LOCATION_TYPES) do
+    event.onmemorywrite(register_handler(mem["addr"], mem["size"], name), 0x80000000 + mem["addr"])
+end
+
+-- event.onmemorywrite(register_handler(0x1CA1D8, 4, "chest"), 0x801CA1D8)
+-- event.onmemorywrite(register_handler(0x1CA1E4, 4, "collec"), 0x801CA1E4)
+-- event.onmemorywrite(register_handler(0x11BC2E, 1, "songs1"), 0x8011BC2E)
+-- event.onmemorywrite(register_handler(0x11BC2F, 1, "songs2"), 0x8011BC2F)
+-- event.onmemorywrite(register_handler(0x11BC38, 1, "songs3"), 0x8011BC38)
 -- the +1 here means the trigger doesn't depend on the first byte, which holds no useful information
 event.onmemorywrite(register_handler(INVENTORY_ADDRS["stick_nut_scale_wallet_bullet_quiver_bomb_str"], 4, "stick_nut_scale_wallet_bullet_quiver_bomb_str"), INVENTORY_ADDRS["stick_nut_scale_wallet_bullet_quiver_bomb_str"] + 0x80000000)
 event.onmemorywrite(register_handler(INVENTORY_ADDRS["hammer"], 1, "hammer"), INVENTORY_ADDRS["hammer"] + 0x80000000)
