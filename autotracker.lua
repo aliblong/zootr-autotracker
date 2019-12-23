@@ -1,16 +1,99 @@
--- function register_self_deleting_capture_fn()
-    -- local fn_name = "testfn"
-    -- function delete_self()
-        -- print(mainmemory.read_u32_be(0x1CA1D8))
-        -- event.unregisterbyname(fn_name)
-    -- end
-    -- event.onframeend(delete_self, fn_name)
--- end
+-- https://wiki.cloudmodding.com/oot/Save_Format#Event_Flags
+-- The trigger address has to be the actual start of the word
+-- i.e. if a 4-byte word is written to address 0x0002, triggering off
+-- writes to 0x0005 will do nothing.
+-- I think this is mostly relevant in the writes that are patched in;
+-- i.e. the writes in the base game tend to be 1 byte at a time.
+CHECKS_MEM_BLOCKS = {
+    chest = {addr = 0x1CA1D8, size = 4},
+    collec = {addr = 0x1CA1E4, size = 4},
+    misc_event_1 = {addr = 0x11B4A4, size = 4},
+    misc_event_2 = {addr = 0x11B4A8, size = 4},
+    misc_event_3 = {addr = 0x11B4AC, size = 4},
+    -- songs1 = {addr = 0x11B4AE, size = 1},
+    -- songs2 = {addr = 0x11B4AF, size = 1},
+    misc_event_4 = {addr = 0x11B4B0, size = 4},
+    misc_event_5 = {addr = 0x11B4B4, size = 4},
+    songs3 = {addr = 0x11B4B8, size = 1},
+    misc_event_6 = {addr = 0x11B4B9, size = 1},
+    saria_bridge = {addr = 0x11B4BA, size = 4},
+    skulltula_token_turnin_checks = {addr = 0x11B4BE, size = 1},
+    frog_checks = {addr = 0x11B4BF, size = 1},
+    -- not sure if it's lua's fault or Bizhawk's, but this implementation
+    -- of lua interpreter doesn't deal well with numbers > 2^32 - 1
+    npc_scrub1 = {addr = 0x11B4C0, size = 4},
+    npc_scrub2 = {addr = 0x11B4C4, size = 4},
+    link_the_goron = {addr = 0x11B4E8, size = 4},
+    thaw_king_zora = {addr = 0x11B4EC, size = 4},
+    nut_stick_richard_horsebackarchery = {addr = 0x11B4F8, size = 4},
+}
+scene_and_global_flags = {}
 
--- event.onmemorywrite(register_self_deleting_capture_fn, 0x801CA1D8)
--- scene_changing = false
--- SCENE_CHANGE_END_ADDR = 0x1DA298
+for name, mem in pairs(CHECKS_MEM_BLOCKS) do
+    scene_and_global_flags[name] = 0
+    event.onmemorywrite(read_mem_and_handle_next_frame(mem["addr"], mem["size"], name), 0x80000000 + mem["addr"])
+end
+
+INVENTORY_MEM_BLOCKS = {
+    fire_arrow = {addr = 0x11A648, size = 1},
+    dins_fire = {addr = 0x11A649, size = 1},
+    ocarina = {addr = 0x11A64B, size = 1},
+    bombchu = {addr = 0x11A64C, size = 1},
+    hookshot = {addr = 0x11A64D, size = 1},
+    farores_wind = {addr = 0x11A64F, size = 1},
+    boomerang = {addr = 0x11A650, size = 1},
+    lens = {addr = 0x11A651, size = 1},
+    beans = {addr = 0x11A652, size = 1},
+    hammer = {addr = 0x11A653, size = 1},
+    light_arrow = {addr = 0x11A654, size = 1},
+    nayrus_love = {addr = 0x11A655, size = 1},
+    bottle1 = {addr = 0x11A656, size = 1},
+    bottle2 = {addr = 0x11A657, size = 1},
+    bottle3 = {addr = 0x11A658, size = 1},
+    bottle4 = {addr = 0x11A659, size = 1},
+    child_trade = {addr = 0x11A65A, size = 1},
+    adult_trade = {addr = 0x11A65B, size = 1},
+    boots_tunic_shield_sword = {addr = 0x11A66C, size = 2},
+    -- the first byte of this 4-byte sequence is unused; the remaining three
+    -- are updated at the same time, and twice in a row when a check is gotten
+    -- the sequence is treated as a single word
+    stick_nut_scale_wallet_bullet_quiver_bomb_str = {addr = 0x11A670, size = 4},
+    quest_items = {addr = 0x11A674, size = 4},
+}
+inventory_state = {}
+
+for name, mem in pairs(INVENTORY_MEM_BLOCKS) do
+    inventory_state[name] = 0
+    event.onmemorywrite(read_mem_and_handle_next_frame(mem["addr"], mem["size"], name), 0x80000000 + mem["addr"])
+end
+
 SCENE_ADDR = 0x1C8544
+
+function resync()
+    resync_checks_state()
+    resync_inventory_state()
+end
+
+function resync_checks_state()
+    resync_running_state_with_mem(scene_and_global_flags, CHECKS_MEM_BLOCKS)
+end
+
+function resync_checks_state()
+    resync_running_state_with_mem(inventory_state, INVENTORY_MEM_BLOCKS)
+end
+
+function resync_running_state_with_mem(running_state, mem_blocks)
+    for name, mem in pairs(mem_blocks) do
+        local addr = mem["addr"]
+        local size = mem["size"]
+        local fixed_size_read_fn = SIZE_TO_READ_FN[size]
+        if fixed_size_read_fn ~= nil then
+            running_state[name] = fixed_size_read_fn(addr)
+        else
+            running_state[name] = read_range(size)(addr)
+        end
+    end
+end
 
 function execute_next_frame(fn, name)
     return function()
@@ -19,20 +102,6 @@ function execute_next_frame(fn, name)
             event.unregisterbyname(name)
         end
         event.onframeend(execute_then_unregister, name)
-    end
-end
-
--- TODO: send entire inventory state when a discrepancy is found
-function resync()
-    for name, mem in pairs(LOCATION_TYPES) do
-        local addr = mem["addr"]
-        local size = mem["size"]
-        fixed_size_read_fn = SIZE_TO_READ_FN[size]
-        if fixed_size_read_fn ~= nil then
-            scene_and_global_flags[name] = fixed_size_read_fn(addr)
-        else
-            scene_and_global_flags[name] = read_range(size)(addr)
-        end
     end
 end
 
@@ -55,34 +124,25 @@ function read_mem_and_handle_next_frame(addr, size, name)
     return execute_next_frame(read_mem_and_handle(addr, size, name), name)
 end
 
-function handle(name, val)
-    if mainmemory.read_u32_be(0x11A5EC) == 0 then --or mainmemory.read_u32_be(0x11B91C) == 0 then
-        return
+function is_opening_load_sequence()
+    -- This first clause is only true right after the system powers on or restarts
+    if mainmemory.read_u32_be(0x11A5EC) == 0 then
+        return true
     end
     if boot_sequence > 0 then
+        return true
+    end
+    return false
+end
+
+function handle(name, val)
+    if is_opening_load_sequence() then
         return
     end
-    -- if scene_number == 0x48 then
-    --     if LOCATION_TYPES[name] ~= nil then
-    --         update_flags(name, val)
-    --         if store_vals ~= nil then
-    --             print(string.format("%s\t%s\t%x -> %x\t%s\t%x\t%x", os.date("%Y-%m-%d %H:%M:%S", os.time()), name, store_vals["prev_val"], store_vals["val"], last_ck_ty, last_ck_val, get_scene_number()))
-    --             store_vals = nil
-    --         else
-    --             store_vals = 1
-    --         end
-    --     else
-    --         if store_vals ~= nil then
-    --             prev_val = update_inventory(name, val)
-    --             if prev_val ~= val then
-    --                 print(string.format("%s\t%s\t%x -> %x\t%s\t%x\t%x", os.date("%Y-%m-%d %H:%M:%S", os.time()), name, prev_val, val, last_ck_ty, last_ck_val, get_scene_number()))
-    --             end
 
-    if LOCATION_TYPES[name] ~= nil then
+    if CHECKS_MEM_BLOCKS[name] ~= nil then
         update_flags(name, val)
     else
-        --if not scene_changing then --and not in_cutscene
-            -- 0x802c is val for title cutscene briefly
         scene_number = get_scene_number()
         if scene_number ~= 0x802c and scene_number ~= 0x8017 and scene_number ~= 0x8018 then
             prev_val = update_inventory(name, val)
@@ -106,8 +166,8 @@ function handle(name, val)
 end
 
 function update_inventory(name, val)
-    prev_val = inventory[name]
-    inventory[name] = val
+    prev_val = inventory_state[name]
+    inventory_state[name] = val
     return prev_val
 end
 
@@ -218,88 +278,11 @@ handle_scene_setup_index = function()
     end
 end
 
--- https://wiki.cloudmodding.com/oot/Save_Format#Event_Flags
--- The trigger address has to be the actual start of the word
--- i.e. if a 4-byte word is written to address 0x0002, triggering off
--- writes to 0x0005 will do nothing.
--- I think this is mostly relevant in the writes that are patched in;
--- i.e. the writes in the base game tend to be 1 byte at a time.
-LOCATION_TYPES = {
-    chest = {addr = 0x1CA1D8, size = 4},
-    collec = {addr = 0x1CA1E4, size = 4},
-    misc_event_1 = {addr = 0x11B4A4, size = 4},
-    misc_event_2 = {addr = 0x11B4A8, size = 4},
-    misc_event_3 = {addr = 0x11B4AC, size = 4},
-    -- songs1 = {addr = 0x11B4AE, size = 1},
-    -- songs2 = {addr = 0x11B4AF, size = 1},
-    misc_event_4 = {addr = 0x11B4B0, size = 4},
-    misc_event_5 = {addr = 0x11B4B4, size = 4},
-    songs3 = {addr = 0x11B4B8, size = 1},
-    misc_event_6 = {addr = 0x11B4B9, size = 1},
-    saria_bridge = {addr = 0x11B4BA, size = 4},
-    skulltula_token_turnin_checks = {addr = 0x11B4BE, size = 1},
-    frog_checks = {addr = 0x11B4BF, size = 1},
-    -- not sure if it's lua's fault or Bizhawk's, but this implementation
-    -- of lua interpreter doesn't deal well with numbers > 2^32 - 1
-    npc_scrub1 = {addr = 0x11B4C0, size = 4},
-    npc_scrub2 = {addr = 0x11B4C4, size = 4},
-    link_the_goron = {addr = 0x11B4E8, size = 4},
-    thaw_king_zora = {addr = 0x11B4EC, size = 4},
-    nut_stick_richard_horsebackarchery = {addr = 0x11B4F8, size = 4},
-}
-scene_and_global_flags = {}
-
-for name, mem in pairs(LOCATION_TYPES) do
-    scene_and_global_flags[name] = 0
-    event.onmemorywrite(read_mem_and_handle_next_frame(mem["addr"], mem["size"], name), 0x80000000 + mem["addr"])
-end
-
-INVENTORY_MEM_BLOCKS = {
-    fire_arrow = {addr = 0x11A648, size = 1},
-    dins_fire = {addr = 0x11A649, size = 1},
-    ocarina = {addr = 0x11A64B, size = 1},
-    bombchu = {addr = 0x11A64C, size = 1},
-    hookshot = {addr = 0x11A64D, size = 1},
-    farores_wind = {addr = 0x11A64F, size = 1},
-    boomerang = {addr = 0x11A650, size = 1},
-    lens = {addr = 0x11A651, size = 1},
-    beans = {addr = 0x11A652, size = 1},
-    hammer = {addr = 0x11A653, size = 1},
-    light_arrow = {addr = 0x11A654, size = 1},
-    nayrus_love = {addr = 0x11A655, size = 1},
-    bottle1 = {addr = 0x11A656, size = 1},
-    bottle2 = {addr = 0x11A657, size = 1},
-    bottle3 = {addr = 0x11A658, size = 1},
-    bottle4 = {addr = 0x11A659, size = 1},
-    child_trade = {addr = 0x11A65A, size = 1},
-    adult_trade = {addr = 0x11A65B, size = 1},
-    boots_tunic_shield_sword = {addr = 0x11A66C, size = 2},
-    -- the first byte of this 4-byte sequence is unused; the remaining three
-    -- are updated at the same time, and twice in a row when a check is gotten
-    -- the sequence is treated as a single word
-    stick_nut_scale_wallet_bullet_quiver_bomb_str = {addr = 0x11A670, size = 4},
-    quest_items = {addr = 0x11A674, size = 4},
-}
-inventory_state = {}
-
-for name, mem in pairs(INVENTORY_MEM_BLOCKS) do
-    inventory_state[name] = 0
-    event.onmemorywrite(read_mem_and_handle_next_frame(mem["addr"], mem["size"], name), 0x80000000 + mem["addr"])
-end
-
 event.onmemorywrite(read_mem_and_handle_next_frame(INVENTORY_ADDRS["stick_nut_scale_wallet_bullet_quiver_bomb_str"], 4, "stick_nut_scale_wallet_bullet_quiver_bomb_str"), INVENTORY_ADDRS["stick_nut_scale_wallet_bullet_quiver_bomb_str"] + 0x80000000)
 event.onmemorywrite(read_mem_and_handle_next_frame(INVENTORY_ADDRS["hammer"], 1, "hammer"), INVENTORY_ADDRS["hammer"] + 0x80000000)
 event.onmemorywrite(read_mem_and_handle_next_frame(INVENTORY_ADDRS["boomerang"], 1, "boomerang"), INVENTORY_ADDRS["boomerang"] + 0x80000000)
 event.onmemorywrite(read_mem_and_handle_next_frame(INVENTORY_ADDRS["boots_tunic_shield_sword"], 2, "boots_tunic_shield_sword"), INVENTORY_ADDRS["boots_tunic_shield_sword"] + 0x80000000)
 event.onmemorywrite(read_mem_and_handle_next_frame(INVENTORY_ADDRS["quest_items"], 3, "quest_items"), INVENTORY_ADDRS["quest_items"] + 0x80000000)
-
-inventory = {
-    quest_items = 0,
-    boomerang = 0,
-    hammer = 0,
-    boots_tunic_shield_sword = 0,
-    stick_nut_scale_wallet_bullet_quiver_bomb_str = 0
-}
 
 -- event.onmemorywrite(read_mem_and_handle_next_frame(0x1CA1D8, 4, "chest"), 0x801CA1D8)
 -- event.onmemorywrite(read_mem_and_handle_next_frame(0x1CA1E4, 4, "collec"), 0x801CA1E4)
